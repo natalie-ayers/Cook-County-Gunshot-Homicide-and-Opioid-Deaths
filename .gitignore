@@ -1,0 +1,9 @@
+*.xlsx
+*.xls
+*.txt
+*.csv
+*.json
+*.RData
+/GunViolence_ME/.Rproj.user
+*.Rhistory
+*.RProj
