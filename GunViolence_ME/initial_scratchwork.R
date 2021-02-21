@@ -7,6 +7,9 @@ library(sf)
 library(mapview)
 library(ggplot2)
 library(data.table)
+library(rjson)
+library(purrr)
+library(jsonlite)
 
 
 ### Read in Data and Format ###
@@ -70,11 +73,89 @@ pubhth_guns_add <- pubhth_guns_add %>% left_join(as.data.frame(table(pubhth_guns
   rename(CNT_AT_LOC = Freq) 
 pubhth_guns_add <- pubhth_guns_add %>% mutate(CNT_FINAL = ifelse((is.na(ADDRESS) | ADDRESS == ''), -1, CNT_AT_LOC))
 
-guns_sf <- st_as_sf(filter(pubhth_guns_add, !is.na(LAT) & !is.na(LON)), coords = c("LON", "LAT"), crs = 4326) 
 
-summary(pubhth_guns_add$CNT_FINAL)
 
-mapview(guns_sf, zcol = "INCOME_INEQ", at = seq(.35,.65,.05), legend = TRUE, label = "FULL_NAME")
+json_addresses <- fromJSON(file = "~/ME_2021/GunViolence_ME/json_addresses.json")
+
+json_df <- data.frame(HASH_KEY = character(),
+                      RAW = character(),
+                      STREET = character(),
+                      CITY = character(),
+                      COUNTY = character(),
+                      STATE = character(),
+                      ZIP = numeric(),
+                      GEO_QUALITY = character(),
+                      GEO_QUAL_CODE = character(),
+                      LAT = numeric(),
+                      LON = numeric(),
+                      STREET_2 = character(),
+                      CITY_2 = character(),
+                      COUNTY_2 = character(),
+                      STATE_2 = character(),
+                      ZIP_2 = numeric(),
+                      GEO_QUALITY_2 = character(),
+                      GEO_QUAL_CODE_2 = character(),
+                      LAT_2 = numeric(),
+                      LON_2 = numeric(),
+                      STREET_3 = character(),
+                      CITY_3 = character(),
+                      COUNTY_3 = character(),
+                      STATE_3 = character(),
+                      ZIP_3 = numeric(),
+                      GEO_QUALITY_3 = character(),
+                      GEO_QUAL_CODE_3 = character(),
+                      LAT_3 = numeric(),
+                      LON_3 = numeric(),
+                      stringsAsFactors = FALSE)
+
+for(i in seq(1, length(json_addresses))){
+  json_df[i, 1] <- names(json_addresses[i])
+  json_df[i, 2] <- json_addresses[[i]]$results[[1]]$providedLocation$street
+  
+  # Account for cases when < 3 results returned from MapQuest API
+  for(j in seq(1,length(json_addresses[[i]]$results[[1]]$locations))){
+    scale = (j - 1) * 9
+    #print(i, j)
+    json_df[i, scale + 3] <- json_addresses[[i]]$results[[1]]$locations[[j]]$street
+    json_df[i, scale + 4] <- json_addresses[[i]]$results[[1]]$locations[[j]]$adminArea5
+    json_df[i, scale + 5] <- json_addresses[[i]]$results[[1]]$locations[[j]]$adminArea4
+    json_df[i, scale + 6] <- json_addresses[[i]]$results[[1]]$locations[[j]]$adminArea3
+    json_df[i, scale + 7] <- json_addresses[[i]]$results[[1]]$locations[[j]]$postalCode
+    json_df[i, scale + 8] <- json_addresses[[i]]$results[[1]]$locations[[j]]$geocodeQuality
+    json_df[i, scale + 9] <- json_addresses[[i]]$results[[1]]$locations[[j]]$geocodeQualityCode
+    json_df[i, scale + 10] <- json_addresses[[i]]$results[[1]]$locations[[j]]$latLng$lat
+    json_df[i, scale + 11] <- json_addresses[[i]]$results[[1]]$locations[[j]]$latLng$lng
+    #print('Made it to end')
+  }
+}
+
+write.csv(json_df, "addresses_latlong.csv")
+
+pubhth_guns_geo <- pubhth_guns_add %>% left_join(json_df, by=c("INCIDENT_ADDRESS" = "RAW")) %>% 
+  mutate(STREET_1 = ifelse(is.na(STREET_1), toupper(STREET), STREET_1), CITY = ifelse(is.na(CITY.x), toupper(CITY.y), CITY.x),
+         STATE = ifelse(is.na(STATE.x), STATE.y, STATE.x), ZIP = ifelse(is.na(ZIP.x), ZIP.y, ZIP.x),
+         LAT = ifelse(is.na(LAT.x), LAT.y, LAT.x), LON = ifelse(is.na(LON.x), LON.y, LON.x),
+         STREET_2 = toupper(STREET_2.y)) %>% select(c(CASE_NO, NAME, MANNER, AGE, SEX, RACE, LATINO,          
+                                                      PRIMARY_CAUSE_A, PRIMARY_CAUSE_B, PRIMARY_CAUSE_C, SECONDARY_CAUSE, DATE_OF_DEATH, 
+                                                      INCIDENT_ADDRESS, INCIDENT_CITY, ID, HASH_KEY, INCIDENT_ADDRESS, FULL_LOC_NAME=FULL_NAME, 
+                                                      ADDRESS, LOC_TYPE, STREET_1, CITY, STATE, ZIP, 
+                                             STATUS, LAT, LON, GEO_QUALITY, GEO_QUAL_CODE,
+                                             TRACT, PROP_UNEMP, PROP_POVERTY, MED_INCOME, INCOME_INEQ, PROP_SINGLE_WOMAN,
+                                             PROP_OWN_OCC, PROP_AF_AM, PROP_HS, PERS_SQ_KILO, UNITS_SQ_KILO))
+write.csv(pubhth_guns_geo, "full_geo_data.csv")
+
+
+
+
+# Read in created datasets
+
+pubhth_data <- read.csv("full_geo_data.csv")
+
+guns_sf <- st_as_sf(filter(pubhth_data, !is.na(LAT) & !is.na(LON)), coords = c("LON", "LAT"), crs = 4326) 
+
+summary(pubhth_guns_geo$CNT_FINAL)
+
+mapview(guns_sf, zcol = "SEX", at = seq(.35,.65,.05), legend = TRUE, label = "FULL_NAME")
 mapview(guns_sf, zcol = "CNT_FINAL", at = seq(0, 2500, 250), legend = TRUE, label = "FULL_NAME")
 
 #look for tract geo-data to have as background layer?
@@ -94,6 +175,7 @@ write.csv(addresses, file = "me_addresses.csv")
 nonscene_addresses <- as_tibble(unique(filter(pubhth_guns, grepl('^[123456789]+', INCIDENT_ADDRESS))$INCIDENT_ADDRESS)) %>% 
   mutate(RAW = value, ADDRESS = value, CITY = '', STATE = 'IL', ZIP = '', ID = seq.int(nrow(nonscene_addresses))) %>% select(-c('value'))
 write.csv(nonscene_addresses, file = "nonscene_addresses.csv")
+
 
 
 ### Explore Data ###
