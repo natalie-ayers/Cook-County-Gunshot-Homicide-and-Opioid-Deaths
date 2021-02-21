@@ -52,3 +52,14 @@ apikey = "tRQRsDSxzHGAGzyVqlgA9ppFa1a2gYcj"
 request = url.format(apikey, raw.loc[0,'address'])
 test = json.loads(requests.get(request).text)
 """
+
+
+"""
+References used:
+https://developer.mapquest.com/documentation/geocoding-api/
+https://stackoverflow.com/questions/31929066/reverse-geocoding-using-mapquest-api-and-python
+"""
+
+
+
+
