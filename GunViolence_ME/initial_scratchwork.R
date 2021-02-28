@@ -129,9 +129,62 @@ for(i in seq(1, length(json_addresses))){
   }
 }
 
+json_df <- json_df %>% select(-starts_with('V'))
+
 write.csv(json_df, "addresses_latlong.csv")
 
-pubhth_guns_geo <- pubhth_guns_add %>% left_join(json_df, by=c("INCIDENT_ADDRESS" = "RAW")) %>% 
+mapquest_locs <- read.csv('addresses_latlong.csv')
+
+best_options <- mapquest_locs %>% mutate(STREET = ifelse(COUNTY != 'Cook', 
+                                                         ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', STREET_2, 
+                                                                ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                       STREET_3, 'MISIDENTIFIED')), 
+                                                         ifelse(STATE == 'IL', STREET, 'MISIDENTIFIED')),
+                                         CITY = ifelse(COUNTY != 'Cook', 
+                                                       ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', CITY_2, 
+                                                              ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                     CITY_3, 'MISIDENTIFIED')), 
+                                                       ifelse(STATE == 'IL', CITY, 'MISIDENTIFIED')),
+                                         COUNTY = ifelse(COUNTY != 'Cook', 
+                                                         ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', COUNTY_2, 
+                                                                ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                       COUNTY_3, 'MISIDENTIFIED')), 
+                                                         ifelse(STATE == 'IL', COUNTY, 'MISIDENTIFIED')),
+                                         STATE = ifelse(COUNTY != 'Cook', 
+                                                        ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', STATE_2, 
+                                                               ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                      STATE_3, 'MISIDENTIFIED')), 
+                                                        ifelse(STATE == 'IL', STATE, 'MISIDENTIFIED')),
+                                         ZIP = ifelse(COUNTY != 'Cook', 
+                                                      ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', ZIP_2, 
+                                                             ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                    ZIP_3, 'MISIDENTIFIED')), 
+                                                      ifelse(STATE == 'IL', ZIP, 'MISIDENTIFIED')),
+                                         GEO_QUALITY = ifelse(COUNTY != 'Cook', 
+                                                              ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', GEO_QUALITY_2, 
+                                                                     ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                            GEO_QUALITY_3, 'MISIDENTIFIED')), 
+                                                              ifelse(STATE == 'IL', GEO_QUALITY, 'MISIDENTIFIED')),
+                                         GEO_QUAL_CODE = ifelse(COUNTY != 'Cook', 
+                                                                ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', GEO_QUAL_CODE_2, 
+                                                                       ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                              GEO_QUAL_CODE_3, 'MISIDENTIFIED')), 
+                                                                ifelse(STATE == 'IL', GEO_QUAL_CODE, 'MISIDENTIFIED')),
+                                         LAT = ifelse(COUNTY != 'Cook', 
+                                                      ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', LAT_2, 
+                                                             ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                    LAT_3, 'MISIDENTIFIED')), 
+                                                      ifelse(STATE == 'IL', LAT, 'MISIDENTIFIED')),
+                                         LON = ifelse(COUNTY != 'Cook', 
+                                                      ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', LON_2, 
+                                                             ifelse(COUNTY_3 == 'Cook'  & STATE_3 == 'IL', 
+                                                                    LON_3, 'MISIDENTIFIED')), 
+                                                      ifelse(STATE == 'IL', LON, 'MISIDENTIFIED')))
+
+
+
+
+pubhth_guns_geo <- pubhth_guns_add %>% left_join(filter(best_options, LAT != 'MISIDENTIFIED'), by=c("INCIDENT_ADDRESS" = "RAW")) %>% 
   mutate(STREET_1 = ifelse(is.na(STREET_1), toupper(STREET), STREET_1), CITY = ifelse(is.na(CITY.x), toupper(CITY.y), CITY.x),
          STATE = ifelse(is.na(STATE.x), STATE.y, STATE.x), ZIP = ifelse(is.na(ZIP.x), ZIP.y, ZIP.x),
          LAT = ifelse(is.na(LAT.x), LAT.y, LAT.x), LON = ifelse(is.na(LON.x), LON.y, LON.x),
@@ -161,6 +214,13 @@ mapview(guns_sf, zcol = "CNT_FINAL", at = seq(0, 2500, 250), legend = TRUE, labe
 #look for tract geo-data to have as background layer?
 
 ggplot() + geom_sf(data=guns_sf)
+
+
+
+
+### Mapquest Data Exploration ##
+
+mapquest_locs <- read.csv('addresses_latlong.csv')
 
 
 
