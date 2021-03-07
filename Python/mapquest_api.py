@@ -5,7 +5,9 @@ import re
 
 
 # Format addresses pulled from ME records; add hash key
-raw = pd.read_csv('C:/Users/natra/Documents/ME_2021/GunViolence_ME/python_addresses.csv')
+#raw = pd.read_csv('C:/Users/natra/Documents/ME_2021/GunViolence_ME/python_addresses.csv')
+#raw = pd.read_csv('C:/Users/natra/Documents/ME_2021/GunViolence_ME/python_addresses_2.csv')
+raw = pd.read_csv('C:/Users/natra/Documents/ME_2021/GunViolence_ME/python_addresses_3.csv')
 for row, index in zip(raw.values, raw.index):   
     raw.loc[index, 'str_address'] = re.sub('\.', '', 
         re.sub(r'\s','+',raw.loc[index,'ADDRESS']))
@@ -27,7 +29,7 @@ for i in range(raw.shape[0]):
     full_locs[str(raw.loc[i,'HASH_KEY'])] = resp
 
 # Load addresses with locations into json
-with open("address_locs.json","w") as f:
+with open("address_locs_3.json","w") as f:
     json.dump(full_locs, f, indent=4)
 
 
