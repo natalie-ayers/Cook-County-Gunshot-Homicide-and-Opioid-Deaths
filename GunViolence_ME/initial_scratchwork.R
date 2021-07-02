@@ -9,7 +9,11 @@ library(ggplot2)
 library(data.table)
 library(rjson)
 library(purrr)
-library(jsonlite)
+#library(jsonlite)
+library(RSocrata)
+library(rgdal)
+library(stringi)
+
 
 
 ### Read in Data and Format ###
@@ -81,11 +85,10 @@ pubhth_guns_add <- pubhth_guns %>% left_join(addresses_geo, by=c('INCIDENT_ADDRE
 
 
 
-
-
 #json_addresses <- fromJSON(file = "~/ME_2021/GunViolence_ME/json_addresses.json")
 #json_addresses <- fromJSON(file="~/ME_2021/GunViolence_ME/json_addresses_2.json")
-json_addresses <- fromJSON(file="~/ME_2021/GunViolence_ME/json_addresses_3.json")
+#json_addresses <- fromJSON(file="~/ME_2021/GunViolence_ME/json_addresses_3.json")
+json_addresses <- fromJSON(file="~/ME_2021/GunViolence_ME/json_addresses_4.json")
 
 json_df <- data.frame(HASH_KEY = character(),
                       RAW = character(),
@@ -142,13 +145,16 @@ for(i in seq(1, length(json_addresses))){
 json_df <- json_df %>% select(-starts_with('V'))
 
 #write.csv(json_df, "addresses_latlong.csv")
-write.csv(json_df, "addresses_latlong_3.csv")
+#write.csv(json_df, "addresses_latlong_3.csv")
+write.csv(json_df, "addresses_latlong_4.csv")
 
 locs_1 <- read.csv('addresses_latlong.csv')
 locs_2 <- read.csv('addresses_latlong_2.csv')
 locs_3 <- read.csv('addresses_latlong_3.csv')
+locs_4 <- read.csv('addresses_latlong_4.csv')
 mapquest_locs_init <- union(locs_1, locs_2)
 mapquest_locs <- union(mapquest_locs_init, locs_3)
+mapquest_locs <- union(mapquest_locs_init, locs_4)
 
 best_options <- mapquest_locs %>% mutate(STREET_FIN = ifelse(COUNTY != 'Cook', 
                                                          ifelse(COUNTY_2 == 'Cook' & STATE_2 == 'IL', STREET_2, 
@@ -200,7 +206,7 @@ best_loc <- best_options %>% select(c(RAW, STREET_FIN, CITY_FIN, COUNTY_FIN, STA
 
 
 manual_locs <- best_options %>% filter(is.na(LAT_FIN) | LAT_FIN == 'MISIDENTIFIED')
-write.csv(manual_locs, 'manually_geoloc_2.csv')
+write.csv(manual_locs, 'manually_geoloc_3.csv')
 
 
 pubhth_guns_geo <- filter(pubhth_guns_add, !is.na(CASE_NO)) %>% left_join(best_loc, by=c("INCIDENT_ADDRESS" = "RAW")) %>% 
@@ -217,9 +223,85 @@ pubhth_guns_geo <- pubhth_guns_geo %>% select(c(CASE_NO, NAME, MANNER, AGE, SEX,
                                                 ZIP,LOC_TYPE, STATUS, LAT, LON, 
                                              TRACT, PROP_UNEMP, PROP_POVERTY, MED_INCOME, INCOME_INEQ, PROP_SINGLE_WOMAN,
                                              PROP_OWN_OCC, PROP_AF_AM, PROP_HS, PERS_SQ_KILO, UNITS_SQ_KILO))
-pubhth_guns_geo <- unique(pubhth_guns_geo)
 
-write.csv(pubhth_guns_geo, "full_geo_data.csv")
+manual_geos <- read.csv('manually_geoloc.csv') %>% select(c('RAW', 'STREET_FIN', 'CITY_FIN', 'COUNTY_FIN', 'STATE_FIN', 'ZIP_FIN',
+                                                            'GEO_QUALITY_FIN', 'GEO_QUAL_CODE_FIN', 'LAT_FIN', 'LON_FIN'))
+pubhth_guns_geo_fin <- left_join(pubhth_guns_geo, manual_geos, by=c('INCIDENT_ADDRESS'='RAW'))
+filter(pubhth_guns_geo_fin, !is.na(CITY_FIN) & toupper(CITY_FIN) != INCIDENT_CITY)
+pubhth_guns_geo_fin <- pubhth_guns_geo_fin %>% 
+  mutate(STREET = ifelse(!is.na(STREET_FIN) & STREET_FIN != '', toupper(STREET_FIN), STREET), 
+         CITY = ifelse(!is.na(CITY_FIN) & CITY_FIN != '',toupper(CITY_FIN), CITY), 
+         STATE = ifelse(!is.na(STATE_FIN) & STATE_FIN != '', toupper(STATE_FIN), STATE), 
+        ZIP = ifelse(!is.na(ZIP_FIN) & ZIP_FIN != '', as.integer(ZIP_FIN), ZIP), 
+        LAT = ifelse(!is.na(LAT_FIN) & LAT_FIN != '', LAT_FIN, LAT), 
+        LON = ifelse(!is.na(LON_FIN) & LON_FIN != '', LON_FIN, LON))
+pubhth_guns_geo_fin <- subset(pubhth_guns_geo_fin, select = -c(STREET_FIN, CITY_FIN, COUNTY_FIN, 
+                                                               STATE_FIN, ZIP_FIN, LAT_FIN, LON_FIN, 
+                                                               GEO_QUALITY_FIN, GEO_QUAL_CODE_FIN))
+
+
+
+
+
+# Attach Chicago neighborhood attribute
+# Neighborhood boundaries from: https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Neighborhoods/bbvz-uum9
+
+chi_neighborhoods <- st_read('~/ME_2021/Python/chi_neighborhoods.shp', crs=4326)
+guns_geo <- st_as_sf(filter(pubhth_guns_geo_fin, !is.na(LAT) & !is.na(LON)), coords = c("LON", "LAT"), crs = 4326)
+guns_neighborhoods <- st_join(guns_geo, chi_neighborhoods, join=st_within)
+
+# Use to identify outlying Chicago points without neighborhood assignments
+ggplot() + geom_sf(data=chi_neighborhoods) + geom_sf(data=filter(guns_neighborhoods,is.na(pri_neigh) & CITY=='CHICAGO')) 
+
+guns_neighborhoods <- guns_neighborhoods %>% mutate(SEC_NEIGHBORHOOD = ifelse(CASE_NO == 'ME2015-02475', 'MIDWAY AIRPORT', 
+                                                ifelse(CASE_NO == 'ME2017-00135', 'MIDWAY AIRPORT',
+                                                ifelse(CASE_NO == 'ME2015-00133', 'WEST LAWN',
+                                                ifelse(CASE_NO == 'ME2017-03776' | CASE_NO == 'ME2020-09211', 'ROGERS PARK',
+                                                ifelse(CASE_NO == 'ME2017-04163' | CASE_NO == 'ME2020-10411', 'SOUTHEAST SIDE',
+                                                ifelse(is.na(sec_neigh), CITY, sec_neigh)))))), 
+                                                PRI_NEIGHBORHOOD = ifelse(CASE_NO == 'ME2015-02475', 'Garfield Ridge', 
+                                                 ifelse(CASE_NO == 'ME2017-00135', 'Clearing',
+                                                ifelse(CASE_NO == 'ME2015-00133', 'West Lawn',
+                                                 ifelse(CASE_NO == 'ME2017-03776' | CASE_NO == 'ME2020-09211', 'Rogers Park',
+                                                ifelse(CASE_NO == 'ME2017-04163' | CASE_NO == 'ME2020-10411', 'Hegewisch',
+                                                 ifelse(is.na(pri_neigh), CITY, pri_neigh))))))) %>%
+  subset(select=c(CASE_NO, PRI_NEIGHBORHOOD, SEC_NEIGHBORHOOD)) 
+
+
+
+# CASE_NO: ME2015-02475, geom: (-87.75656 41.80723), pri_neigh: Garfield Ridge, sec_neigh: MIDWAY AIRPORT 
+# CASE_NO: ME2017-00135, geom: (-87.7422 41.77251), pri_neigh: Clearing, sec_neigh: MIDWAY AIRPORT
+# CASE_NO: ME2015-00133, geom: (-87.74203 41.76531), pri_neigh: West Lawn, sec_neigh: WEST LAWN
+# CASE_NO: ME2017-03776, geom: (-87.67627 42.01942), pri_neigh: Rogers Park, sec_neigh: ROGERS PARK
+# CASE_NO: ME2017-04163, geom: (-87.55558 41.64176), pri_neigh: Hegewisch, sec_neigh: SOUTHEAST SIDE
+# CASE_NO: ME2020-10411, geom: (-87.55558 41.64176), pri_neigh: Hegewisch, sec_neigh: SOUTHEAST SIDE
+# CASE_NO: ME2020-09211, geom: (-87.6737 42.01953), pri_neigh: Rogers Park, sec_neigh: ROGERS PARK
+# CASE_NO: ME2018-00967, geom: (-87.56077 41.63008), 
+
+
+guns_fin <- left_join(pubhth_guns_geo_fin, guns_neighborhoods) %>% 
+  mutate(CITY=stri_trans_totitle(CITY),STREET=stri_trans_totitle(STREET),PRI_NEIGHBORHOOD=stri_trans_totitle(PRI_NEIGHBORHOOD),
+         SEC_NEIGHBORHOOD=stri_trans_totitle(SEC_NEIGHBORHOOD), NAME=stri_trans_totitle(NAME),RACE=stri_trans_totitle(RACE),
+         SEX=stri_trans_totitle(SEX),LATINO=stri_trans_totitle(LATINO),PRIMARY_CAUSE_A=stri_trans_totitle(PRIMARY_CAUSE_A),
+         PRIMARY_CAUSE_B=stri_trans_totitle(PRIMARY_CAUSE_B), PRIMARY_CAUSE_C=stri_trans_totitle(PRIMARY_CAUSE_C),
+         SECONDARY_CAUSE=stri_trans_totitle(SECONDARY_CAUSE))  %>% subset(select=-c(geometry))
+
+#guns_fin <- read.csv("full_geo_data.csv")
+
+guns_fin['RACE'] <- ifelse(guns_fin$RACE=='Oriental','Asian',guns_fin$RACE)
+
+guns_fin <- select(guns_fin, c("CASE_NO" ,"NAME", "MANNER", "AGE","SEX" , "RACE","LATINO",
+                               "PRIMARY_CAUSE_A","PRIMARY_CAUSE_B","PRIMARY_CAUSE_C","SECONDARY_CAUSE","DATE_OF_DEATH" ,"INCIDENT_ADDRESS",
+                               "INCIDENT_CITY","FULL_LOC_NAME",
+                               "ADDRESS", "STREET", "CITY","STATE","ZIP","PRI_NEIGHBORHOOD","SEC_NEIGHBORHOOD",
+                               "LOC_TYPE","STATUS","LAT","LON","TRACT")) %>%
+  mutate(RACE = ifelse(RACE=="Am. Indian",'Native American',
+                       ifelse(RACE=='Oriental','Asian',
+                       ifelse((RACE!='Black' & RACE!='White' & RACE!='Asian' & RACE!='Native American'),'Other',RACE))))
+
+
+write.csv(guns_fin, "full_geo_data.csv")
+
 
 
 
@@ -228,7 +310,12 @@ write.csv(pubhth_guns_geo, "full_geo_data.csv")
 
 pubhth_data <- read.csv("full_geo_data.csv")
 
-guns_sf <- st_as_sf(filter(pubhth_data, !is.na(LAT) & !is.na(LON)), coords = c("LON", "LAT"), crs = 4326) 
+
+guns_sf <- st_as_sf(filter(pubhth_data, !is.na(LAT) & !is.na(LON)), coords = c("LON", "LAT"), crs = 4326)
+
+
+
+
 
 summary(pubhth_guns_geo$CNT_FINAL)
 
@@ -237,7 +324,6 @@ mapview(guns_sf, zcol = "CNT_FINAL", at = seq(0, 2500, 250), legend = TRUE, labe
 
 #look for tract geo-data to have as background layer?
 
-ggplot() + geom_sf(data=guns_sf)
 
 
 
@@ -245,9 +331,6 @@ ggplot() + geom_sf(data=guns_sf)
 ### Mapquest Data Exploration ##
 
 mapquest_locs <- read.csv('addresses_latlong.csv')
-
-
-
 
 
 
@@ -269,6 +352,7 @@ barplot(table(filter(pubhth_guns, INCIDENT_CITY != 'Chicago')$INCIDENT_CITY))
 
 ggplot(pubhth_guns, aes(x = DATE_OF_DEATH, color = SEX)) +
   geom_freqpoly()
+
 
 
 
